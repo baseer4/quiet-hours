@@ -4,8 +4,8 @@ import { FaTrashAlt } from "react-icons/fa";
 
 type Block = {
   id: number;
-  start: string;
-  end: string;
+  start_time: string; 
+  end_time: string;   
 };
 
 type Props = {
@@ -22,24 +22,29 @@ export default function ScheduleList({ blocks, onRemoveBlock }: Props) {
     );
   }
 
+  // Function to format time string (like "21:14:00") to display format
+  const formatTime = (timeString: string) => {
+    // timeString is like "21:14:00" from database
+    // Convert to "9:14 PM" format
+    const [hours, minutes] = timeString.split(':');
+    const hour24 = parseInt(hours);
+    const hour12 = hour24 === 0 ? 12 : hour24 > 12 ? hour24 - 12 : hour24;
+    const ampm = hour24 >= 12 ? 'PM' : 'AM';
+    return `${hour12}:${minutes} ${ampm}`;
+  };
+
   return (
     <ul className="space-y-4">
       {blocks.map((block) => (
         <li key={block.id} className="alert flex justify-between items-center bg-base-200 border border-base-300">
           <div className="flex-grow">
             <div className="font-semibold">
-              {new Date(block.start).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
+              {formatTime(block.start_time)}
               {" - "}
-              {new Date(block.end).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
+              {formatTime(block.end_time)}
             </div>
             <div className="text-sm opacity-70">
-              {new Date(block.start).toLocaleDateString()}
+              Daily Time Block
             </div>
           </div>
           <button
