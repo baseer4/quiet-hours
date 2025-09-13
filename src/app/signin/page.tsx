@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { createClient } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 
 export default function Signin() {
@@ -10,51 +10,79 @@ export default function Signin() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
+  const supabase = createClient();
 
-  const handleSignin = async () => {
+  const handleSignin = async (e: React.FormEvent) => {
+    e.preventDefault();
     setLoading(true);
     setError("");
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
 
-    if (error) setError(error.message);
-    else router.push("/scheduler");
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ 
+        email, 
+        password 
+      });
+
+      if (error) {
+        setError(error.message);
+      } else if (data.user) {
+        router.push("/");
+        router.refresh(); 
+      }
+    } catch (err) {
+      setError("An unexpected error occurred");
+      console.error("Signin error:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-base-200">
       <div className="card w-full max-w-sm shadow-2xl bg-base-100">
-        <div className="card-body">
+        <form onSubmit={handleSignin} className="card-body">
           <h2 className="card-title text-center text-2xl font-bold">Sign In</h2>
 
           <div className="form-control">
-            <label className="label"><span className="label-text">Email</span></label>
+            <label className="label">
+              <span className="label-text">Email</span>
+            </label>
             <input
               type="email"
               placeholder="email@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="input input-bordered"
+              required
+              autoComplete="email"
             />
           </div>
 
           <div className="form-control">
-            <label className="label"><span className="label-text">Password</span></label>
+            <label className="label">
+              <span className="label-text">Password</span>
+            </label>
             <input
               type="password"
               placeholder="********"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="input input-bordered"
+              required
+              autoComplete="current-password"
             />
           </div>
 
-          {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
+          {error && (
+            <div className="alert alert-error">
+              <span className="text-sm">{error}</span>
+            </div>
+          )}
 
           <div className="form-control mt-4">
             <button
+              type="submit"
               className={`btn btn-primary rounded-xl ${loading ? "loading" : ""}`}
-              onClick={handleSignin}
               disabled={loading}
             >
               {loading ? "Signing in..." : "Sign In"}
@@ -62,10 +90,12 @@ export default function Signin() {
           </div>
 
           <p className="text-center text-sm mt-2">
-            Don’t have an account?{" "}
-            <a href="/signup" className="text-primary font-bold">Sign Up</a>
+            Don't have an account?{" "}
+            <a href="/signup" className="text-primary font-bold hover:underline">
+              Sign Up
+            </a>
           </p>
-        </div>
+        </form>
       </div>
     </div>
   );
