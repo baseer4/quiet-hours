@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabaseServer';
 
+interface NotificationResult {
+  success: boolean;
+  email: string;
+  blockId?: string;
+  error?: any;
+}
+
 export async function GET(request: NextRequest) {
   try {
     // Verify this is actually from Vercel Cron (security check)
@@ -11,7 +18,8 @@ export async function GET(request: NextRequest) {
 
     console.log('🕒 Cron job started at:', new Date().toISOString());
 
-    const supabase = createClient();
+    // FIX 1: Add await here
+    const supabase = await createClient();
     const now = new Date();
     const indiaTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
     
@@ -85,8 +93,9 @@ export async function GET(request: NextRequest) {
       })
     );
 
-    const successCount = notifications.filter(n => n.success).length;
-    const failCount = notifications.filter(n => !n.success).length;
+    // FIX 2: Add type annotations to fix 'any' type errors
+    const successCount = notifications.filter((n: NotificationResult) => n.success).length;
+    const failCount = notifications.filter((n: NotificationResult) => !n.success).length;
 
     console.log(`📊 Notification results: ${successCount} sent, ${failCount} failed`);
 
