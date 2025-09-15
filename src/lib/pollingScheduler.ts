@@ -3,48 +3,47 @@ import { sendQuietHoursEmail } from "./mail";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!, // Service role key bypasses RLS
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
   {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
     },
+    global: {
+      fetch: (url, options = {}) => {
+        return fetch(url, {
+          ...options,
+          signal: AbortSignal.timeout(30000), // 30s timeout
+        });
+      },
+    },
   }
 );
 
+const sendEmailWithRetry = async (email, startTime, endTime, maxRetries = 2) => {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      await sendQuietHoursEmail(email, startTime, endTime);
+      return true;
+    } catch (error) {
+      console.error(`Email attempt ${i + 1} failed for ${email}:`, error.message);
+      if (i === maxRetries - 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, 3000)); 
+    }
+  }
+};
+
 export const startPollingScheduler = async () => {
-  // console.log("Scheduler run started with SERVICE ROLE KEY");
+  const startTime = Date.now();
+  console.log(`[${new Date().toISOString()}] Scheduler started`);
 
   try {
-    const now = new Date();
-    const utcTime = now.getTime() + now.getTimezoneOffset() * 60000;
-    const istTime = new Date(utcTime + 5.5 * 60 * 60 * 1000);
-
-    // console.log(
-    //   `\n === Current IST: ${istTime.getDate()}/${
-    //     istTime.getMonth() + 1
-    //   }/${istTime.getFullYear()} ${istTime
-    //     .getHours()
-    //     .toString()
-    //     .padStart(2, "0")}:${istTime
-    //     .getMinutes()
-    //     .toString()
-    //     .padStart(2, "0")}:${istTime
-    //     .getSeconds()
-    //     .toString()
-    //     .padStart(2, "0")} ===`
-    // );
-
-    const { data: allBlocks, error: allError } = await supabase
-      .from("blocks")
-      .select("*");
-
-    if (allError) {
-      console.error(" Database error:", allError);
-      return;
-    }
-
-    // console.log(`Total blocks in database: ${allBlocks?.length || 0}`);
+    // Use more reliable IST calculation
+    const istTime = new Date(new Date().toLocaleString("en-US", {
+      timeZone: "Asia/Kolkata"
+    }));
+    
+    console.log(`IST Time: ${istTime.toISOString()}`);
 
     const { data: unsentBlocks, error: unsentError } = await supabase
       .from("blocks")
@@ -52,27 +51,26 @@ export const startPollingScheduler = async () => {
       .eq("mail", false);
 
     if (unsentError) {
-      console.error("Error fetching unsent blocks:", unsentError);
-      return;
+      throw new Error(`Database error: ${unsentError.message}`);
     }
-
-    // console.log(`Blocks needing emails: ${unsentBlocks?.length || 0}`);
 
     if (!unsentBlocks || unsentBlocks.length === 0) {
       console.log("No blocks need email notifications");
       return;
     }
 
+    console.log(`Processing ${unsentBlocks.length} blocks`);
+    let emailsSent = 0;
+    let errors = 0;
+
     for (const block of unsentBlocks) {
       try {
-        // console.log(`\nProcessing Block ID ${block.id}`);
-
-        const [hours, minutes, seconds] = block.start_time
+        const [hours, minutes, seconds = 0] = block.start_time
           .split(":")
           .map(Number);
 
         const blockStartToday = new Date(istTime);
-        blockStartToday.setHours(hours, minutes, seconds || 0, 0);
+        blockStartToday.setHours(hours, minutes, seconds, 0);
 
         const blockStartTomorrow = new Date(blockStartToday);
         blockStartTomorrow.setDate(blockStartTomorrow.getDate() + 1);
@@ -86,39 +84,57 @@ export const startPollingScheduler = async () => {
           diffTodayMinutes > 0 ? diffTodayMinutes : diffTomorrowMinutes;
 
         if (minutesUntilStart <= 10 && minutesUntilStart > 0) {
-          // console.log(`SENDING EMAIL for block ${block.id}!`);
+          console.log(`Sending email for block ${block.id} (${minutesUntilStart.toFixed(1)}min until start)`);
 
-          await sendQuietHoursEmail(
-            block.email,
-            block.start_time,
-            block.end_time
-          );
+          // Send email with retry
+          await sendEmailWithRetry(block.email, block.start_time, block.end_time);
+          emailsSent++;
 
+          // Update database only after successful email
           const { error: updateError } = await supabase
             .from("blocks")
             .update({ mail: true })
             .eq("id", block.id);
 
           if (updateError) {
-            console.error(` Failed to update mail flag:`, updateError);
-          } else {
-            // console.log(`Database updated: mail=true for block ${block.id}`);
+            throw new Error(`Failed to update block ${block.id}: ${updateError.message}`);
           }
-        } else {
-          // console.log(
-          //   `Not time yet (minutesUntilStart=${minutesUntilStart.toFixed(1)})`
-          // );
+
+          console.log(`✓ Block ${block.id} processed successfully`);
+          
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
       } catch (blockError) {
-        console.error(` Error processing block ${block.id}:`, blockError);
+        errors++;
+        console.error(`✗ Error processing block ${block.id}:`, blockError.message);
       }
     }
+
+    const duration = Date.now() - startTime;
+    console.log(`Scheduler completed: ${emailsSent} emails sent, ${errors} errors, ${duration}ms`);
+
   } catch (globalError) {
-    console.error("Global error:", globalError);
+    console.error("Critical error:", globalError.message);
+    throw globalError; 
   }
 };
 
-startPollingScheduler().then(() => {
-  console.log(" Scheduler run finished");
-  process.exit(0);
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error.message);
+  process.exit(1);
 });
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled Promise Rejection:', reason);
+  process.exit(1);
+});
+
+startPollingScheduler()
+  .then(() => {
+    console.log(`[${new Date().toISOString()}] Scheduler finished successfully`);
+    process.exit(0);
+  })
+  .catch((error) => {
+    console.error(`[${new Date().toISOString()}] Scheduler failed:`, error.message);
+    process.exit(1);
+  });
