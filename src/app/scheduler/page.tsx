@@ -61,21 +61,23 @@ export default function Home() {
     };
 
     try {
-      const { data, error } = await supabase
-        .from("blocks")
-        .insert([{ 
-          start_time: formatTime(start), 
-          end_time: formatTime(end), 
-          user_id: user.id 
-        }])
-        .select()
-        .single();
+     const { data, error } = await supabase
+  .from("blocks")
+  .insert([{ 
+    start_time: formatTime(start), 
+    end_time: formatTime(end), 
+    user_id: user.id,
+    email: user.email,   
+    mail: false         
+  }])
+  .select()
+  .single();
+
 
       if (error) {
         console.error("Error adding block:", error);
         alert("Error adding block: " + error.message);
       } else {
-        // Add the new block to state
         setBlocks((prev) => [data, ...prev]);
       }
     } catch (err) {
