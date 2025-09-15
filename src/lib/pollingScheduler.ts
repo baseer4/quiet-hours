@@ -136,5 +136,4 @@ export const startPollingScheduler = async () => {
 
 startPollingScheduler().then(() => {
   console.log(`[${new Date().toISOString()}] Scheduler run finished`);
-  process.exit(0);
 });
